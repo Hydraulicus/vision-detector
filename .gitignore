@@ -1,0 +1,36 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Compiled files
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+
+# Executables
+vision_detector
+*.exe
+
+# Private submodule (added separately)
+private/
+
+# Generated files
+compile_commands.json
+.cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# TFLite models (large files)
+*.tflite

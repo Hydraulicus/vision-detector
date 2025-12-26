@@ -8,6 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Options
 option(BUILD_TESTS "Build unit tests" OFF)
 option(USE_GPU_DELEGATE "Use GPU delegate for TFLite" ON)
+option(USE_TFLITE "Enable TensorFlow Lite inference" OFF)  # OFF for testing without TFLite
 
 # Platform detection
 if(APPLE)
@@ -24,27 +25,34 @@ elseif(UNIX)
 endif()
 
 # Dependencies
-# TensorFlow Lite
+# TensorFlow Lite (optional for testing)
 find_package(PkgConfig QUIET)
 
-# Try to find TFLite via pkg-config or manual path
-if(DEFINED TFLITE_ROOT)
-    set(TFLITE_INCLUDE_DIRS "${TFLITE_ROOT}/include")
-    set(TFLITE_LIBRARIES "${TFLITE_ROOT}/lib/libtensorflowlite.so")
-else()
-    # Fallback: try common locations
-    find_path(TFLITE_INCLUDE_DIRS tensorflow/lite/interpreter.h
-        HINTS /usr/local/include /opt/tensorflow/include
-    )
-    find_library(TFLITE_LIBRARIES tensorflowlite tensorflow-lite
-        HINTS /usr/local/lib /opt/tensorflow/lib
-    )
-endif()
+if(USE_TFLITE)
+    # Try to find TFLite via pkg-config or manual path
+    if(DEFINED TFLITE_ROOT)
+        set(TFLITE_INCLUDE_DIRS "${TFLITE_ROOT}/include")
+        set(TFLITE_LIBRARIES "${TFLITE_ROOT}/lib/libtensorflowlite.so")
+    else()
+        # Fallback: try common locations
+        find_path(TFLITE_INCLUDE_DIRS tensorflow/lite/interpreter.h
+            HINTS /usr/local/include /opt/tensorflow/include
+        )
+        find_library(TFLITE_LIBRARIES tensorflowlite tensorflow-lite
+            HINTS /usr/local/lib /opt/tensorflow/lib
+        )
+    endif()
 
-if(TFLITE_INCLUDE_DIRS AND TFLITE_LIBRARIES)
-    message(STATUS "TFLite found: ${TFLITE_LIBRARIES}")
+    if(TFLITE_INCLUDE_DIRS AND TFLITE_LIBRARIES)
+        message(STATUS "TFLite found: ${TFLITE_LIBRARIES}")
+        add_compile_definitions(USE_TFLITE=1)
+    else()
+        message(FATAL_ERROR "TFLite not found but USE_TFLITE=ON")
+    endif()
 else()
-    message(WARNING "TFLite not found. Build will fail without it.")
+    message(STATUS "TFLite disabled (USE_TFLITE=OFF) - using placeholder inference")
+    set(TFLITE_INCLUDE_DIRS "")
+    set(TFLITE_LIBRARIES "")
 endif()
 
 # Shared protocol submodule
@@ -102,7 +110,7 @@ install(DIRECTORY private/config/
 message(STATUS "")
 message(STATUS "=== Vision Detector Configuration ===")
 message(STATUS "  Platform: ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
-message(STATUS "  TFLite: ${TFLITE_LIBRARIES}")
+message(STATUS "  TFLite: ${USE_TFLITE}")
 message(STATUS "  GPU Delegate: ${USE_GPU_DELEGATE}")
 message(STATUS "======================================")
 message(STATUS "")

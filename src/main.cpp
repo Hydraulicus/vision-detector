@@ -21,7 +21,11 @@ void signalHandler(int signum) {
 void printUsage(const char* program) {
     std::cout << "Usage: " << program << " [options]\n"
               << "\nOptions:\n"
+#ifdef USE_TFLITE
               << "  -m, --model <path>     Path to TFLite model file (required)\n"
+#else
+              << "  -m, --model <path>     Path to TFLite model file (optional, TFLite disabled)\n"
+#endif
               << "  -l, --labels <path>    Path to labels file (optional)\n"
               << "  -t, --threshold <val>  Confidence threshold (default: 0.5)\n"
               << "  -n, --nms <val>        NMS threshold (default: 0.4)\n"
@@ -60,11 +64,17 @@ int main(int argc, char* argv[]) {
         }
     }
 
+#ifdef USE_TFLITE
     if (config.model_path.empty()) {
         std::cerr << "Error: Model path is required\n" << std::endl;
         printUsage(argv[0]);
         return 1;
     }
+#else
+    if (config.model_path.empty()) {
+        config.model_path = "(placeholder - TFLite disabled)";
+    }
+#endif
 
     // Setup signal handlers
     std::signal(SIGINT, signalHandler);

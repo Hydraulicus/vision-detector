@@ -39,7 +39,6 @@ int main(int argc, char* argv[]) {
 
     // Parse arguments
     DetectorConfig config;
-    std::string labels_path;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -47,7 +46,7 @@ int main(int argc, char* argv[]) {
         if ((arg == "-m" || arg == "--model") && i + 1 < argc) {
             config.model_path = argv[++i];
         } else if ((arg == "-l" || arg == "--labels") && i + 1 < argc) {
-            labels_path = argv[++i];
+            config.labels_path = argv[++i];
         } else if ((arg == "-t" || arg == "--threshold") && i + 1 < argc) {
             config.confidence_threshold = std::stof(argv[++i]);
         } else if ((arg == "-n" || arg == "--nms") && i + 1 < argc) {

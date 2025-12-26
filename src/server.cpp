@@ -165,8 +165,11 @@ bool DetectionServer::handleClient() {
         }
 
         if (frame_msg.type == MessageType::HEARTBEAT) {
-            // Echo heartbeat
-            send(client_fd_, &frame_msg, sizeof(frame_msg), 0);
+            // Echo heartbeat with correct size
+            HeartbeatMessage heartbeat;
+            heartbeat.type = MessageType::HEARTBEAT;
+            heartbeat.timestamp_ns = reinterpret_cast<HeartbeatMessage*>(&frame_msg)->timestamp_ns;
+            send(client_fd_, &heartbeat, sizeof(HeartbeatMessage), 0);
             continue;
         }
 

@@ -10,6 +10,7 @@ namespace vision_detector {
 
 struct DetectorConfig {
     std::string model_path;
+    std::string labels_path;  // Optional: path to labels file
     float confidence_threshold = 0.5f;
     float nms_threshold = 0.4f;
     int num_threads = 2;

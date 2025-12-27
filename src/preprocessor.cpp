@@ -87,12 +87,13 @@ void Preprocessor::normalize(
 ) {
     output.resize(width * height * 3);
 
-    // Standard normalization: [0, 255] -> [0, 1]
-    // Some models use: [0, 255] -> [-1, 1] via (x - 127.5) / 127.5
-    // Adjust based on your model's requirements
+    // Normalization for MobileNet SSD and similar models: [0, 255] -> [-1, 1]
+    // Formula: (pixel - 127.5) / 127.5
+    constexpr float mean = 127.5f;
+    constexpr float std = 127.5f;
 
     for (int i = 0; i < width * height * 3; ++i) {
-        output[i] = input[i] / 255.0f;
+        output[i] = (static_cast<float>(input[i]) - mean) / std;
     }
 }
 

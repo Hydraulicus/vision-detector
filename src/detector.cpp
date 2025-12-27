@@ -130,22 +130,58 @@ std::vector<detector_protocol::Detection> Detector::detect(
 
     // Parse output tensors
     // SSD MobileNet output format: boxes, classes, scores, num_detections
-    // Output tensor indices may vary by model
+    // Output tensor indices vary by model (TF1 vs TF2)
     int num_outputs = impl_->interpreter->outputs().size();
 
     if (num_outputs >= 4) {
-        // Standard SSD output format
-        float* boxes = impl_->interpreter->typed_output_tensor<float>(0);
-        float* classes = impl_->interpreter->typed_output_tensor<float>(1);
-        float* scores = impl_->interpreter->typed_output_tensor<float>(2);
-        float* num_det = impl_->interpreter->typed_output_tensor<float>(3);
+        // Detect TF1 vs TF2 model by checking output tensor name
+        // TF2 models have "StatefulPartitionedCall" in tensor names
+        std::string out_name = impl_->interpreter->GetOutputName(0);
+        bool is_tf2 = (out_name.find("StatefulPartitionedCall") != std::string::npos);
 
-        if (boxes && classes && scores && num_det) {
-            int count = static_cast<int>(*num_det);
-            count = std::min(count, 100);  // Limit to reasonable number
+        // Debug: print output tensor info once
+        static bool debug_printed = false;
+        if (!debug_printed) {
+            std::cout << "Output tensors (" << num_outputs << "):" << std::endl;
+            for (int i = 0; i < num_outputs; ++i) {
+                auto* tensor = impl_->interpreter->output_tensor(i);
+                std::cout << "  [" << i << "] " << impl_->interpreter->GetOutputName(i)
+                          << " shape: ";
+                for (int d = 0; d < tensor->dims->size; ++d) {
+                    std::cout << tensor->dims->data[d] << " ";
+                }
+                std::cout << std::endl;
+            }
+            std::cout << "Model type: " << (is_tf2 ? "TF2" : "TF1") << std::endl;
+            debug_printed = true;
+        }
 
-            for (int i = 0; i < count; ++i) {
-                if (scores[i] < config_.confidence_threshold) continue;
+        int boxes_idx, classes_idx, scores_idx;
+        if (is_tf2) {
+            // TF2 model output order
+            boxes_idx = 1;
+            classes_idx = 3;
+            scores_idx = 0;
+        } else {
+            // TF1 model output order
+            boxes_idx = 0;
+            classes_idx = 1;
+            scores_idx = 2;
+        }
+
+        float* boxes = impl_->interpreter->typed_output_tensor<float>(boxes_idx);
+        float* classes = impl_->interpreter->typed_output_tensor<float>(classes_idx);
+        float* scores = impl_->interpreter->typed_output_tensor<float>(scores_idx);
+
+        if (boxes && classes && scores) {
+            // Get number of detections from tensor shape (like Python does)
+            auto* scores_tensor = impl_->interpreter->output_tensor(scores_idx);
+            int num_scores = scores_tensor->dims->data[1];  // Shape is [1, N]
+            num_scores = std::min(num_scores, 100);
+
+            for (int i = 0; i < num_scores; ++i) {
+                // Skip low confidence (Python: scores[i] > threshold and scores[i] <= 1.0)
+                if (scores[i] < config_.confidence_threshold || scores[i] > 1.0f) continue;
 
                 detector_protocol::Detection det;
                 // SSD format: [ymin, xmin, ymax, xmax] normalized

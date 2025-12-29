@@ -118,12 +118,17 @@ set(SOURCES
     src/detector.cpp
     src/preprocessor.cpp
     src/server.cpp
+    src/model_manager.cpp
+    src/evaluator.cpp
 )
 
 set(HEADERS
     include/detector.h
     include/preprocessor.h
     include/server.h
+    include/model_manager.h
+    include/evaluator.h
+    include/json_utils.h
 )
 
 # Main executable
@@ -131,6 +136,7 @@ add_executable(vision_detector ${SOURCES} ${HEADERS})
 
 target_include_directories(vision_detector PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
     ${TFLITE_INCLUDE_DIRS}
 )
 

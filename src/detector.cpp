@@ -74,6 +74,7 @@ bool Detector::initialize(const DetectorConfig& config) {
 
     std::cout << "TFLite model loaded: " << model_name_ << std::endl;
     std::cout << "  Input size: " << input_width_ << "x" << input_height_ << std::endl;
+    std::cout << "  Output type: " << config_.output_type << std::endl;
 
 #else
     // Placeholder values when TFLite is disabled
@@ -128,42 +129,56 @@ std::vector<detector_protocol::Detection> Detector::detect(
         return detections;
     }
 
-    // Parse output tensors
-    // SSD MobileNet output format: boxes, classes, scores, num_detections
-    // Output tensor indices vary by model (TF1 vs TF2)
+    // Debug: print output tensor info once
+    static bool debug_printed = false;
+    if (!debug_printed) {
+        int num_outputs = impl_->interpreter->outputs().size();
+        std::cout << "Output tensors (" << num_outputs << "):" << std::endl;
+        for (int i = 0; i < num_outputs; ++i) {
+            auto* tensor = impl_->interpreter->output_tensor(i);
+            std::cout << "  [" << i << "] " << impl_->interpreter->GetOutputName(i)
+                      << " shape: ";
+            for (int d = 0; d < tensor->dims->size; ++d) {
+                std::cout << tensor->dims->data[d] << " ";
+            }
+            std::cout << std::endl;
+        }
+        debug_printed = true;
+    }
+
+    // Choose parser based on output type
+    if (config_.output_type == "yolov8") {
+        parseYoloV8Output(detections);
+    } else {
+        // Default: SSD MobileNet
+        parseSSDOutput(detections);
+    }
+#endif
+
+    auto end = std::chrono::high_resolution_clock::now();
+    last_inference_time_ms_ = std::chrono::duration<float, std::milli>(end - start).count();
+
+    // Apply NMS
+    applyNMS(detections);
+
+    return detections;
+}
+
+#ifdef USE_TFLITE
+void Detector::parseSSDOutput(std::vector<detector_protocol::Detection>& detections) {
     int num_outputs = impl_->interpreter->outputs().size();
 
     if (num_outputs >= 4) {
         // Detect TF1 vs TF2 model by checking output tensor name
-        // TF2 models have "StatefulPartitionedCall" in tensor names
         std::string out_name = impl_->interpreter->GetOutputName(0);
         bool is_tf2 = (out_name.find("StatefulPartitionedCall") != std::string::npos);
 
-        // Debug: print output tensor info once
-        static bool debug_printed = false;
-        if (!debug_printed) {
-            std::cout << "Output tensors (" << num_outputs << "):" << std::endl;
-            for (int i = 0; i < num_outputs; ++i) {
-                auto* tensor = impl_->interpreter->output_tensor(i);
-                std::cout << "  [" << i << "] " << impl_->interpreter->GetOutputName(i)
-                          << " shape: ";
-                for (int d = 0; d < tensor->dims->size; ++d) {
-                    std::cout << tensor->dims->data[d] << " ";
-                }
-                std::cout << std::endl;
-            }
-            std::cout << "Model type: " << (is_tf2 ? "TF2" : "TF1") << std::endl;
-            debug_printed = true;
-        }
-
         int boxes_idx, classes_idx, scores_idx;
         if (is_tf2) {
-            // TF2 model output order
             boxes_idx = 1;
             classes_idx = 3;
             scores_idx = 0;
         } else {
-            // TF1 model output order
             boxes_idx = 0;
             classes_idx = 1;
             scores_idx = 2;
@@ -174,13 +189,11 @@ std::vector<detector_protocol::Detection> Detector::detect(
         float* scores = impl_->interpreter->typed_output_tensor<float>(scores_idx);
 
         if (boxes && classes && scores) {
-            // Get number of detections from tensor shape (like Python does)
             auto* scores_tensor = impl_->interpreter->output_tensor(scores_idx);
-            int num_scores = scores_tensor->dims->data[1];  // Shape is [1, N]
+            int num_scores = scores_tensor->dims->data[1];
             num_scores = std::min(num_scores, 100);
 
             for (int i = 0; i < num_scores; ++i) {
-                // Skip low confidence (Python: scores[i] > threshold and scores[i] <= 1.0)
                 if (scores[i] < config_.confidence_threshold || scores[i] > 1.0f) continue;
 
                 detector_protocol::Detection det;
@@ -200,16 +213,82 @@ std::vector<detector_protocol::Detection> Detector::detect(
             }
         }
     }
-#endif
-
-    auto end = std::chrono::high_resolution_clock::now();
-    last_inference_time_ms_ = std::chrono::duration<float, std::milli>(end - start).count();
-
-    // Apply NMS
-    applyNMS(detections);
-
-    return detections;
 }
+
+void Detector::parseYoloV8Output(std::vector<detector_protocol::Detection>& detections) {
+    // YOLOv8 output format: [1, num_classes+4, num_boxes]
+    // For single class: [1, 5, 2100] where 5 = 4 (box coords) + 1 (class score)
+    // Box format: [cx, cy, w, h] in pixels (need to normalize by input size)
+
+    auto* output_tensor = impl_->interpreter->output_tensor(0);
+    float* output = impl_->interpreter->typed_output_tensor<float>(0);
+
+    if (!output || output_tensor->dims->size < 3) {
+        std::cerr << "Invalid YOLOv8 output tensor" << std::endl;
+        return;
+    }
+
+    // Output shape: [batch, channels, num_boxes]
+    // channels = 4 (box) + num_classes
+    int num_channels = output_tensor->dims->data[1];
+    int num_boxes = output_tensor->dims->data[2];
+    int num_classes_in_output = num_channels - 4;
+
+    // YOLOv8 TFLite output is transposed: [1, 5, 2100]
+    // Data is already normalized to [0, 1] by ultralytics export
+    // Data layout: all cx values first, then all cy, w, h, scores
+
+    for (int i = 0; i < num_boxes; ++i) {
+        // Find best class score for this box
+        float max_score = 0.0f;
+        int max_class = 0;
+
+        for (int c = 0; c < num_classes_in_output; ++c) {
+            float score = output[(4 + c) * num_boxes + i];
+            if (score > max_score) {
+                max_score = score;
+                max_class = c;
+            }
+        }
+
+        // Skip low confidence
+        if (max_score < config_.confidence_threshold) continue;
+
+        // Get box coordinates (already normalized to [0, 1])
+        float cx = output[0 * num_boxes + i];  // center x
+        float cy = output[1 * num_boxes + i];  // center y
+        float bw = output[2 * num_boxes + i];  // width
+        float bh = output[3 * num_boxes + i];  // height
+
+        // Convert from center format to corner format
+        float x = cx - bw / 2.0f;
+        float y = cy - bh / 2.0f;
+
+        // Clamp to valid range
+        x = std::max(0.0f, std::min(1.0f, x));
+        y = std::max(0.0f, std::min(1.0f, y));
+        bw = std::max(0.0f, std::min(1.0f - x, bw));
+        bh = std::max(0.0f, std::min(1.0f - y, bh));
+
+        // Skip invalid boxes
+        if (bw <= 0.001f || bh <= 0.001f) continue;
+
+        detector_protocol::Detection det;
+        det.x = x;
+        det.y = y;
+        det.width = bw;
+        det.height = bh;
+        det.confidence = max_score;
+        det.class_id = static_cast<uint32_t>(max_class);
+
+        std::string label = getClassLabel(det.class_id);
+        std::strncpy(det.label, label.c_str(), sizeof(det.label) - 1);
+        det.label[sizeof(det.label) - 1] = '\0';
+
+        detections.push_back(det);
+    }
+}
+#endif
 
 std::string Detector::getClassLabel(int class_id) const {
     if (class_id >= 0 && class_id < static_cast<int>(class_labels_.size())) {

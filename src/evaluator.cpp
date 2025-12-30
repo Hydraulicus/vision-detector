@@ -64,6 +64,7 @@ bool Evaluator::initialize(const EvaluationConfig& config) {
     det_config.confidence_threshold = config.confidence_threshold;
     det_config.nms_threshold = config.nms_threshold;
     det_config.use_gpu = config.use_gpu;
+    det_config.output_type = model_config_.output_type;  // Pass output type from model config
 
     if (!detector_.initialize(det_config)) {
         std::cerr << "Failed to initialize detector" << std::endl;
@@ -72,6 +73,7 @@ bool Evaluator::initialize(const EvaluationConfig& config) {
 
     // Initialize preprocessor
     preprocessor_.setTargetSize(detector_.getInputWidth(), detector_.getInputHeight());
+    preprocessor_.setNormalization(model_config_.normalize_min, model_config_.normalize_max);
 
     std::cout << "Evaluator initialized:" << std::endl;
     std::cout << "  Model: " << model_config_.name << std::endl;

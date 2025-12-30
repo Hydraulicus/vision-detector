@@ -15,6 +15,9 @@ struct DetectorConfig {
     float nms_threshold = 0.4f;
     int num_threads = 2;
     bool use_gpu = false;
+
+    // Model output format: "ssd_mobilenet" or "yolov8"
+    std::string output_type = "ssd_mobilenet";
 };
 
 class Detector {
@@ -66,6 +69,10 @@ private:
 
     bool loadLabels(const std::string& labels_path);
     void applyNMS(std::vector<detector_protocol::Detection>& detections);
+
+    // Output format parsers
+    void parseSSDOutput(std::vector<detector_protocol::Detection>& detections);
+    void parseYoloV8Output(std::vector<detector_protocol::Detection>& detections);
 };
 
 }  // namespace vision_detector

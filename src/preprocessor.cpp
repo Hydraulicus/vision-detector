@@ -15,6 +15,11 @@ void Preprocessor::setTargetSize(int width, int height) {
     resize_buffer_.resize(width * height * 3);
 }
 
+void Preprocessor::setNormalization(float min, float max) {
+    norm_min_ = min;
+    norm_max_ = max;
+}
+
 void Preprocessor::process(
     const uint8_t* input_rgb,
     int input_width,
@@ -87,13 +92,16 @@ void Preprocessor::normalize(
 ) {
     output.resize(width * height * 3);
 
-    // Normalization for MobileNet SSD and similar models: [0, 255] -> [-1, 1]
-    // Formula: (pixel - 127.5) / 127.5
-    constexpr float mean = 127.5f;
-    constexpr float std = 127.5f;
+    // Configurable normalization: [0, 255] -> [norm_min_, norm_max_]
+    // For [-1, 1]: (pixel - 127.5) / 127.5 = pixel / 127.5 - 1
+    // For [0, 1]:  pixel / 255.0
+    // General formula: norm_min + (pixel / 255.0) * (norm_max - norm_min)
+
+    float range = norm_max_ - norm_min_;
 
     for (int i = 0; i < width * height * 3; ++i) {
-        output[i] = (static_cast<float>(input[i]) - mean) / std;
+        float normalized = static_cast<float>(input[i]) / 255.0f;  // [0, 1]
+        output[i] = norm_min_ + normalized * range;  // [norm_min, norm_max]
     }
 }
 

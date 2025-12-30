@@ -14,6 +14,11 @@ public:
     // Configure target size for model input
     void setTargetSize(int width, int height);
 
+    // Configure normalization range
+    // SSD MobileNet: min=-1, max=1 (formula: (pixel - 127.5) / 127.5)
+    // YOLOv8: min=0, max=1 (formula: pixel / 255.0)
+    void setNormalization(float min, float max);
+
     // Preprocess raw RGB frame for model input
     // Input: raw RGB data (uint8_t, 3 channels)
     // Output: normalized float data ready for TFLite
@@ -32,6 +37,10 @@ public:
 private:
     int target_width_ = 320;
     int target_height_ = 320;
+
+    // Normalization range (default: SSD MobileNet [-1, 1])
+    float norm_min_ = -1.0f;
+    float norm_max_ = 1.0f;
 
     // Resize with bilinear interpolation
     void resize(

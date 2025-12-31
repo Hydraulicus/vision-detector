@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <filesystem>
+#include <sys/utsname.h>
 
 #ifdef USE_TFLITE
 #include "tensorflow/lite/interpreter.h"
@@ -64,12 +66,26 @@ bool Detector::initialize(const DetectorConfig& config) {
         input_height_ = 320;
     }
 
-    // Extract model name from path
-    auto pos = config.model_path.rfind('/');
-    if (pos != std::string::npos) {
-        model_name_ = config.model_path.substr(pos + 1);
+    // Set model name (from config or extract from path)
+    if (!config.model_name.empty()) {
+        model_name_ = config.model_name;
     } else {
-        model_name_ = config.model_path;
+        auto pos = config.model_path.rfind('/');
+        if (pos != std::string::npos) {
+            model_name_ = config.model_path.substr(pos + 1);
+        } else {
+            model_name_ = config.model_path;
+        }
+    }
+
+    // Set model description
+    model_description_ = config.model_description;
+
+    // Get model file size
+    try {
+        model_size_bytes_ = std::filesystem::file_size(config.model_path);
+    } catch (...) {
+        model_size_bytes_ = 0;
     }
 
     std::cout << "TFLite model loaded: " << model_name_ << std::endl;
@@ -381,6 +397,52 @@ void Detector::cleanup() {
     impl_->model.reset();
 #endif
     class_labels_.clear();
+}
+
+detector_protocol::ModelInfo Detector::getModelInfo() const {
+    using namespace detector_protocol;
+
+    ModelInfo info{};
+
+    // Name
+    std::strncpy(info.name, model_name_.c_str(), sizeof(info.name) - 1);
+    info.name[sizeof(info.name) - 1] = '\0';
+
+    // Description
+    std::strncpy(info.description, model_description_.c_str(), sizeof(info.description) - 1);
+    info.description[sizeof(info.description) - 1] = '\0';
+
+    // Model type
+    if (config_.output_type == "yolov8") {
+        info.type = ModelType::YOLOV8;
+    } else if (config_.output_type == "yolov5") {
+        info.type = ModelType::YOLOV5;
+    } else if (config_.output_type == "efficientdet") {
+        info.type = ModelType::EFFICIENTDET;
+    } else {
+        info.type = ModelType::SSD_MOBILENET;
+    }
+
+    // Dimensions
+    info.input_width = static_cast<uint32_t>(input_width_);
+    info.input_height = static_cast<uint32_t>(input_height_);
+    info.num_classes = static_cast<uint32_t>(num_classes_);
+    info.model_size_bytes = model_size_bytes_;
+
+    // Device info
+    struct utsname sys_info;
+    if (uname(&sys_info) == 0) {
+        std::string device = std::string(sys_info.sysname) + "-" + sys_info.machine;
+        std::strncpy(info.device, device.c_str(), sizeof(info.device) - 1);
+        info.device[sizeof(info.device) - 1] = '\0';
+    } else {
+        std::strncpy(info.device, "unknown", sizeof(info.device) - 1);
+    }
+
+    // Zero reserved
+    std::memset(info.reserved, 0, sizeof(info.reserved));
+
+    return info;
 }
 
 }  // namespace vision_detector

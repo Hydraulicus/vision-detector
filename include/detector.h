@@ -18,6 +18,10 @@ struct DetectorConfig {
 
     // Model output format: "ssd_mobilenet" or "yolov8"
     std::string output_type = "ssd_mobilenet";
+
+    // Model metadata (for protocol handshake)
+    std::string model_name;        // Human-readable name (e.g., "drones_yolo")
+    std::string model_description; // Model description
 };
 
 class Detector {
@@ -46,7 +50,13 @@ public:
     int getInputHeight() const { return input_height_; }
     int getNumClasses() const { return num_classes_; }
     const std::string& getModelName() const { return model_name_; }
+    const std::string& getModelDescription() const { return model_description_; }
+    const std::string& getOutputType() const { return config_.output_type; }
+    uint64_t getModelSizeBytes() const { return model_size_bytes_; }
     float getLastInferenceTimeMs() const { return last_inference_time_ms_; }
+
+    // Get full model info for protocol handshake
+    detector_protocol::ModelInfo getModelInfo() const;
 
     // Get class label
     std::string getClassLabel(int class_id) const;
@@ -62,6 +72,8 @@ private:
     int input_height_ = 0;
     int num_classes_ = 0;
     std::string model_name_;
+    std::string model_description_;
+    uint64_t model_size_bytes_ = 0;
     float last_inference_time_ms_ = 0.0f;
 
     DetectorConfig config_;

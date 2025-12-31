@@ -67,6 +67,10 @@ int runServerMode(const std::string& model_arg,
     bool is_path = (model_arg.find('/') != std::string::npos) ||
                    (model_arg.find(".tflite") != std::string::npos);
 
+    // Model config (only used for registry mode)
+    ModelConfig model_config;
+    bool has_model_config = false;
+
     if (is_path) {
         // Direct path mode
         config.model_path = model_arg;
@@ -79,7 +83,6 @@ int runServerMode(const std::string& model_arg,
             return 1;
         }
 
-        ModelConfig model_config;
         if (!model_manager.getModelConfig(model_arg, model_config)) {
             std::cerr << "Model not found: " << model_arg << std::endl;
             std::cerr << "Use --list-models to see available models" << std::endl;
@@ -88,6 +91,10 @@ int runServerMode(const std::string& model_arg,
 
         config.model_path = model_config.model_path;
         config.labels_path = model_config.labels_path;
+        config.output_type = model_config.output_type;
+        config.model_name = model_config.name;
+        config.model_description = model_config.description;
+        has_model_config = true;
 
         std::cout << "Using model from registry: " << model_config.name << std::endl;
     }
@@ -114,6 +121,11 @@ int runServerMode(const std::string& model_arg,
     std::cout << "  Classes: " << detector.getNumClasses() << std::endl;
 
     preprocessor.setTargetSize(detector.getInputWidth(), detector.getInputHeight());
+
+    // Set normalization from model config (if available)
+    if (has_model_config) {
+        preprocessor.setNormalization(model_config.normalize_min, model_config.normalize_max);
+    }
 
     if (!server.initialize(&detector, &preprocessor)) {
         std::cerr << "Failed to initialize server" << std::endl;

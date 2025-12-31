@@ -70,10 +70,16 @@ bool DetectionServer::start(bool blocking) {
 void DetectionServer::stop() {
     running_ = false;
 
-    // Close client connection to unblock accept()
+    // Close client connection to unblock recv()
     if (client_fd_ >= 0) {
         UnixSocket::close(client_fd_);
         client_fd_ = -1;
+    }
+
+    // Close server socket to unblock accept()
+    if (server_fd_ >= 0) {
+        UnixSocket::close(server_fd_);
+        server_fd_ = -1;
     }
 
     if (server_thread_.joinable()) {
@@ -123,16 +129,12 @@ bool DetectionServer::handleClient() {
 
     std::cout << "Handshake: protocol v" << request.protocol_version << std::endl;
 
-    // Send handshake response
-    HandshakeResponse response;
+    // Send handshake response with model info
+    HandshakeResponse response{};
     response.type = MessageType::HANDSHAKE_RESPONSE;
     response.protocol_version = PROTOCOL_VERSION;
     response.accepted = (request.protocol_version == PROTOCOL_VERSION) ? 1 : 0;
-    response.model_input_width = detector_->getInputWidth();
-    response.model_input_height = detector_->getInputHeight();
-    response.num_classes = detector_->getNumClasses();
-    std::strncpy(response.model_name, detector_->getModelName().c_str(),
-                 sizeof(response.model_name) - 1);
+    response.model_info = detector_->getModelInfo();
 
     if (send(client_fd_, &response, sizeof(response), 0) != sizeof(response)) {
         std::cerr << "Failed to send handshake response" << std::endl;
@@ -255,9 +257,11 @@ void DetectionServer::cleanup() {
 
     if (server_fd_ >= 0) {
         UnixSocket::close(server_fd_);
-        UnixSocket::unlink(SOCKET_PATH);
         server_fd_ = -1;
     }
+
+    // Always try to unlink socket file
+    UnixSocket::unlink(SOCKET_PATH);
 
     if (shm_ptr_) {
         SharedMemory::close(shm_ptr_, SHM_SIZE, shm_fd_);
